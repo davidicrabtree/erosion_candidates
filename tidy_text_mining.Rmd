@@ -1,0 +1,220 @@
+---
+author: "David I. Crabtree"
+date: "10/2/2022"
+output: 
+  html_document:
+    toc: true
+params:
+  candidate: "Dilma Rousseff"
+title: "Text Analysis: `r params$candidate`"
+---
+
+```{r, include = FALSE}
+library(tidyverse)
+library(tidytext)
+library(here)
+library(scales)
+library(igraph)
+library(ggraph)
+
+knitr::opts_chunk$set(
+                      warning = FALSE,
+                      message = FALSE)
+
+speeches_df <- read_csv(here("data", "CCD_text.csv"))
+
+candidate_speeches <- speeches_df %>%
+  rename(speech = X7) %>%
+  select(-X6) %>%
+  filter(Politician == params$candidate)
+
+head(candidate_speeches)
+
+speeches_df %>%
+  count(Politician)
+  
+  
+```
+
+
+
+```{r}
+
+data(stop_words)
+
+candidate_speeches <- candidate_speeches %>%
+  unnest_tokens(word, speech) %>%
+  anti_join(stop_words) %>%
+  filter(word != "applause")
+
+```
+
+
+```{r}
+
+# candidate_speeches %>%
+#   group_by(Date) %>%
+#   count(word)
+
+candidate_speeches %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 100) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(mapping = aes(x = n, y = word)) +
+    geom_col() +
+    labs(y = NULL)
+
+```
+
+
+## Word Frequency over Time
+```{r} 
+
+candidate_speeches %>%
+  group_by(Date) %>%
+  count(word) %>%
+  filter(n > 5) %>%
+ggplot( 
+       mapping = aes(x = Date, y = n)) +
+  geom_jitter(alpha = 0.1, size = 2.5, width = 0.3, height = 0.3) +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  # scale_x_log10(labels = percent_format()) +
+  # scale_y_log10(labels = percent_format()) +
+  scale_color_gradient(limits = c(0, 0.001), 
+                       low = "darkslategray4", high = "gray75") +
+  theme(legend.position="none") +
+  labs(y = "Word Frequency", x = "Date")
+
+
+```
+
+```{r defining assoc function, include = FALSE}
+bigram_assoc <- function(bigram_data, search1, search2 = NULL) {
+  
+  if(is.null(search2)) {
+    bigram_table <- bigram_data %>%
+      filter(word2 == search1) %>%
+      count(Date, word1) %>%
+      full_join(
+    bigram_data %>%
+      filter(word1 == search1) %>%
+      count(Date, word2), by = "Date") %>%
+      DT::datatable()
+      return(bigram_table)
+  }
+
+  if(!is.null(search2)) {
+    bigram_table <- bigram_data %>%
+      filter(word2 == search1 | word2 == search2) %>%
+      count(Date, word1) %>%
+      full_join(
+    bigram_data %>%
+      filter(word1 == search1 | word1 == search2) %>%
+      count(Date, word2), by = "Date") %>%
+      DT::datatable()
+      return(bigram_table)
+  }
+  
+}
+
+```
+
+## Word Associations {.tabset}
+### Most Common
+```{r trump bigram}
+
+speeches_df <- read_csv(here("data", "CCD_text.csv"))
+
+candidate_speeches <- speeches_df %>%
+  rename(speech = X7) %>%
+  select(-X6) %>%
+  filter(Politician == params$candidate)
+
+candidate_bigrams <- candidate_speeches %>%
+  unnest_tokens(bigram, speech, token = "ngrams", n = 2) %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  filter(!word1 %in% stop_words$word,
+         !word2 %in% stop_words$word)
+
+candidate_bigrams %>%
+  count(word1, word2, sort = TRUE) %>%
+  DT::datatable()
+```
+
+### Corruption
+```{r}
+
+bigram_assoc(candidate_bigrams, search1 = "corrupt", "corruption")
+
+
+```
+
+
+### Rigged
+```{r} 
+
+bigram_assoc(candidate_bigrams, "rigged", "rig")
+
+bigram_assoc(candidate_bigrams, "bias")
+
+bigram_assoc(candidate_bigrams, "unfair")
+
+```
+
+### Media
+```{r} 
+
+bigram_assoc(candidate_bigrams, "media", "news")
+
+```
+
+### Courts
+```{r} 
+bigram_assoc(candidate_bigrams, "court", "justices")
+
+```
+
+### Miscellaneous Populist Rhetoric
+```{r} 
+
+bigram_assoc(candidate_bigrams, "elite")
+
+bigram_assoc(candidate_bigrams, "evil")
+
+bigram_assoc(candidate_bigrams, "destroy")
+
+bigram_assoc(candidate_bigrams, "steal")
+
+bigram_assoc(candidate_bigrams, "hurt")
+
+bigram_assoc(candidate_bigrams, "kill")
+
+bigram_assoc(candidate_bigrams, "attack")
+
+bigram_assoc(candidate_bigrams, "enemy")
+
+```
+
+
+## Bigram Graph
+```{r} 
+
+a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
+
+candidate_bigrams %>%
+  select(word1, word2) %>%
+  count(word1, word2) %>%
+  filter(n > 10) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+    geom_edge_link(aes(edge_alpha = n), show.legend = FALSE,
+                   arrow = a, end_cap = circle(.07, 'inches')) +
+    geom_node_point(color = "lightblue", size = 5) +
+    geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+    theme_void()
+
+
+
+```
+
+
